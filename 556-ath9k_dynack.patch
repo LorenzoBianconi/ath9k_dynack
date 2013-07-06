@@ -108,8 +108,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-04 23:40:16.706733000 +0200
-@@ -0,0 +1,26 @@
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-06 02:15:02.839192000 +0200
+@@ -0,0 +1,54 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -120,6 +120,30 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 +#ifndef ATH9K_DYNACK_H
 +#define ATH9K_DYNACK_H
 +
++#define ATH_DYN_BUF		64
++#define ATH_DYN_MAX_DELAY	300
++
++struct ts_info {
++	int tstamp;
++	int dur;
++};
++
++/**
++ * ath_dyn_txbuf - tx ts ring buffer
++ */
++struct ath_dyn_txbuf {
++	u16 h_rb, t_rb;
++	struct ts_info ts[ATH_DYN_BUF];
++};
++
++/**
++ * ath_dyn_rxbuf - rx ts ring buffer
++ */
++struct ath_dyn_rxbuf {
++	u16 h_rb, t_rb;
++	struct ts_info ts[ATH_DYN_BUF];
++};
++
 +/**
 + * ath_dynack - dyn ack processing info
 + * @fix_to: use static ack timeout
@@ -127,6 +151,10 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 + */
 +struct ath_dynack {
 +	bool fix_to;
++
++	spinlock_t qlock;
++	struct ath_dyn_rxbuf ack_rbf;
++	struct ath_dyn_txbuf st_rbf;
 +};
 +
 +void ath_dynack_init(struct ath_softc *sc);
@@ -153,8 +181,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/Makefile
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-04 23:58:46.310733000 +0200
-@@ -0,0 +1,46 @@
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-06 02:23:39.911192000 +0200
+@@ -0,0 +1,144 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -166,12 +194,46 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +#include "ath9k.h"
 +
 +/**
-+ * ath_dynack_init - init dyn ack data structures
++ * ath_dynack_compute_to - compute sta ack timeout
++ * @sc: soft carrier
++ *
++ * should be called while holding qlock
++ */
++static void ath_dynack_compute_to(struct ath_softc *sc)
++{
++	int to;
++	struct ath_dynack *da = &sc->dynack;
++	u16 *ack_h = &da->ack_rbf.h_rb, *st_h = &da->st_rbf.h_rb;
++	struct ts_info *ack_ts = &da->ack_rbf.ts[*ack_h];
++	struct ts_info *st_ts = &da->st_rbf.ts[*st_h];
++
++	while(da->st_rbf.h_rb != da->st_rbf.t_rb &&
++	      da->ack_rbf.h_rb != da->ack_rbf.t_rb) {
++		to = ack_ts->tstamp - st_ts->tstamp - ack_ts->dur - st_ts->dur;
++
++		if (to > 0) {
++			if (to < ATH_DYN_MAX_DELAY) {
++				;
++			}
++			INCR(*st_h, ATH_DYN_BUF);
++		} else
++			INCR(*ack_h, ATH_DYN_BUF);
++	}
++}
++
++/**
++ * ath_dynack_init - init dynack data structure
 + * @sc: soft carrier
 + *
 + */
 +void ath_dynack_init(struct ath_softc *sc)
 +{
++	struct ath_dynack *da = &sc->dynack;
++
++	spin_lock_init(&da->qlock);
++
++	/* init acktimeout */
++	ath9k_hw_set_ack_timeout(sc->sc_ah, 64);
 +}
 +
 +void ath_dynack_deinit(struct ath_softc *sc)
@@ -188,6 +250,35 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +void ath_dynack_sample_tx_ts(struct ath_softc *sc, struct sk_buff *skb,
 +			     struct ath_tx_status *ts)
 +{
++	u8 ridx = ts->ts_rateindex;
++	struct ath_dynack *da = &sc->dynack;
++	u16 *head = &da->st_rbf.h_rb, *tail = &da->st_rbf.t_rb;
++	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
++
++	if ((info->flags & IEEE80211_TX_CTL_NO_ACK) || da->fix_to)
++		return;
++
++	spin_lock_bh(&da->qlock);
++	da->st_rbf.ts[*tail].tstamp = ts->ts_tstamp;
++	da->st_rbf.ts[*tail].dur = ts->duration[ts->ts_rateindex];
++
++	if (!(info->control.rates[ridx].flags & IEEE80211_TX_RC_MCS))
++		da->st_rbf.ts[*tail].dur -= ath9k_hw_get_sifs_time(sc->sc_ah);
++
++#ifdef CONFIG_ATH9K_DYNACK_DEBUG
++	printk(KERN_DEBUG "%s: %pM sample %u [dur %u][h %u-t %u]\n",
++	       __func__, hdr->addr1, da->st_rbf.ts[*tail].tstamp,
++		da->st_rbf.ts[*tail].dur, *head, (*tail + 1) % ATH_DYN_BUF);
++#endif
++
++	INCR(*tail, ATH_DYN_BUF);
++	if (*tail == *head)
++		INCR(*head, ATH_DYN_BUF);
++
++	/* compute sta acktimeout */
++	ath_dynack_compute_to(sc);
++
++	spin_unlock_bh(&da->qlock);
 +}
 +
 +/**
@@ -200,6 +291,41 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +void ath_dynack_sample_ack_ts(struct ath_softc *sc, struct sk_buff *skb,
 +			      u64 ts)
 +{
++	const struct ieee80211_rate *rate;
++	struct ath_dynack *da = &sc->dynack;
++	u16 *head = &da->ack_rbf.h_rb, *tail = &da->ack_rbf.t_rb;
++	u32 phy = WLAN_RC_PHY_OFDM;
++	struct ieee80211_rx_status *info = IEEE80211_SKB_RXCB(skb);
++
++	if (da->fix_to)
++		return;
++
++	rate = &sc->sbands[info->band].bitrates[info->rate_idx];
++	if ((info->band == IEEE80211_BAND_2GHZ) &&
++	    !(rate->flags & IEEE80211_RATE_ERP_G))
++		phy = WLAN_RC_PHY_CCK;
++
++	spin_lock_bh(&da->qlock);
++	da->ack_rbf.ts[*tail].tstamp = ts;
++	da->ack_rbf.ts[*tail].dur = ath9k_hw_computetxtime(sc->sc_ah,
++		phy, rate->bitrate * 100, skb->len, info->rate_idx,
++		!!(info->flag & RX_FLAG_SHORTPRE));
++	da->ack_rbf.ts[*tail].dur -= ath9k_hw_get_sifs_time(sc->sc_ah);
++
++#ifdef CONFIG_ATH9K_DYNACK_DEBUG
++	printk(KERN_DEBUG "%s: sample %u [dur %u][h %u-t %u]\n",
++		__func__, da->ack_rbf.ts[*tail].tstamp,
++		da->ack_rbf.ts[*tail].dur, *head, (*tail + 1) % ATH_DYN_BUF);
++#endif
++
++	INCR(*tail, ATH_DYN_BUF);
++	if (*tail == *head)
++		INCR(*head, ATH_DYN_BUF);
++
++	/* compute sta acktimeout */
++	ath_dynack_compute_to(sc);
++
++	spin_unlock_bh(&da->qlock);
 +}
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/recv.c
 ===================================================================
