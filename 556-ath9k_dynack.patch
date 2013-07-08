@@ -1,7 +1,7 @@
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/ath9k.h
 ===================================================================
 --- compat-wireless-2013-04-16.orig/drivers/net/wireless/ath/ath9k/ath9k.h	2013-06-15 16:20:17.701822187 +0200
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/ath9k.h	2013-06-15 16:25:54.549822187 +0200
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-08 02:40:17.766862999 +0200
 @@ -27,6 +27,7 @@
  #include "common.h"
  #include "mci.h"
@@ -14,7 +14,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/ath9k.h
  
  	bool sleeping;
  
-+	u16 ack_to;
++	u16 ackto;
 +	struct list_head list;
 +
  #if defined(CONFIG_MAC80211_DEBUGFS) && defined(CONFIG_ATH9K_DEBUGFS)
@@ -34,7 +34,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/ath9k.h
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/init.c
 ===================================================================
 --- compat-wireless-2013-04-16.orig/drivers/net/wireless/ath/ath9k/init.c	2013-06-15 16:20:17.701822187 +0200
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/init.c	2013-07-01 00:59:54.729012000 +0200
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/init.c	2013-07-08 02:12:17.914862999 +0200
 @@ -621,6 +621,7 @@
  	spin_lock_init(&sc->sc_serial_rw);
  	spin_lock_init(&sc->sc_pm_lock);
@@ -71,13 +71,13 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/init.c
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c
 ===================================================================
 --- compat-wireless-2013-04-16.orig/drivers/net/wireless/ath/ath9k/main.c	2013-06-15 16:20:17.701822187 +0200
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c	2013-07-04 23:56:41.442733000 +0200
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c	2013-07-08 02:10:47.610862999 +0200
 @@ -330,6 +330,10 @@
  	an->sta = sta;
  	an->vif = vif;
  
 +	mutex_lock(&sc->nodes_mtx);
-+	list_add(&an->list, &sc->nodes);
++	list_add_rcu(&an->list, &sc->nodes);
 +	mutex_unlock(&sc->nodes_mtx);
 +
  	ath_tx_node_init(sc, an);
@@ -89,7 +89,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c
  	struct ath_node *an = (struct ath_node *)sta->drv_priv;
 +
 +	mutex_lock(&sc->nodes_mtx);
-+	list_del(&an->list);
++	list_del_rcu(&an->list);
 +	mutex_unlock(&sc->nodes_mtx);
 +
  	ath_tx_node_cleanup(sc, an);
@@ -108,8 +108,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-06 02:15:02.839192000 +0200
-@@ -0,0 +1,54 @@
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-08 02:39:50.214862999 +0200
+@@ -0,0 +1,56 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -122,6 +122,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 +
 +#define ATH_DYN_BUF		64
 +#define ATH_DYN_MAX_DELAY	300
++#define ATH_DYN_EWMA		75
 +
 +struct ts_info {
 +	int tstamp;
@@ -134,6 +135,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 +struct ath_dyn_txbuf {
 +	u16 h_rb, t_rb;
 +	struct ts_info ts[ATH_DYN_BUF];
++	struct ieee80211_sta *stalist[ATH_DYN_BUF];
 +};
 +
 +/**
@@ -181,8 +183,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/Makefile
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-06 02:23:39.911192000 +0200
-@@ -0,0 +1,144 @@
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-08 02:55:42.706862999 +0200
+@@ -0,0 +1,226 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -193,6 +195,54 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +
 +#include "ath9k.h"
 +
++#define ATH_DYNACK_EWMA(old, new, weight)		\
++	(((new) * (100 - (weight)) + (old) * weight) / 100)
++
++/*
++ * ath_dynack_get_sifs - get sifs time based on phy used
++ * @sc: soft carrier
++ * @phy: phy used
++ */
++static inline u16 ath_dynack_get_sifs(struct ath_softc *sc, int phy)
++{
++	u16 sifs = CCK_SIFS_TIME;
++
++	if (phy == WLAN_RC_PHY_OFDM) {
++		if (IS_CHAN_QUARTER_RATE(sc->sc_ah->curchan))
++			sifs = OFDM_SIFS_TIME_QUARTER;
++		else if (IS_CHAN_HALF_RATE(sc->sc_ah->curchan))
++			sifs = OFDM_SIFS_TIME_HALF;
++		else
++			sifs = OFDM_SIFS_TIME;
++	}
++	return sifs;
++}
++
++/**
++ * ath_dynack_min_to - get minimum ack timeout
++ * as defined by IEEE 802.11-2007 17.3.8.6
++ * @sc: soft carrier
++ *
++ */
++static inline u32 ath_dynack_min_to(struct ath_softc *sc)
++{
++	const struct ath9k_channel *chan = sc->sc_ah->curchan;
++	u32 slottime = sc->sc_ah->slottime, ack_offset = 0;
++	u32 sifs = (IS_CHAN_5GHZ(chan)) ? 16 : 10;
++
++	if (IS_CHAN_QUARTER_RATE(chan)) {
++		sifs *= 4;
++		slottime = 21;
++		ack_offset = 32;
++	} else if (IS_CHAN_HALF_RATE(chan)) {
++		sifs *= 2;
++		slottime = 13;
++		ack_offset = 16;
++	}
++
++	return slottime + sifs + ack_offset;
++}
++
 +/**
 + * ath_dynack_compute_to - compute sta ack timeout
 + * @sc: soft carrier
@@ -201,19 +251,35 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 + */
 +static void ath_dynack_compute_to(struct ath_softc *sc)
 +{
-+	int to;
++	int delay, min_to = ath_dynack_min_to(sc);
++	struct ath_node *an = NULL;
++	struct ieee80211_sta *sta = NULL;
 +	struct ath_dynack *da = &sc->dynack;
 +	u16 *ack_h = &da->ack_rbf.h_rb, *st_h = &da->st_rbf.h_rb;
 +	struct ts_info *ack_ts = &da->ack_rbf.ts[*ack_h];
 +	struct ts_info *st_ts = &da->st_rbf.ts[*st_h];
 +
-+	while(da->st_rbf.h_rb != da->st_rbf.t_rb &&
-+	      da->ack_rbf.h_rb != da->ack_rbf.t_rb) {
-+		to = ack_ts->tstamp - st_ts->tstamp - ack_ts->dur - st_ts->dur;
++	while (da->st_rbf.h_rb != da->st_rbf.t_rb &&
++	       da->ack_rbf.h_rb != da->ack_rbf.t_rb) {
++		delay = ack_ts->tstamp - st_ts->tstamp - ack_ts->dur - st_ts->dur;
 +
-+		if (to > 0) {
-+			if (to < ATH_DYN_MAX_DELAY) {
-+				;
++		sta = rcu_dereference(da->st_rbf.stalist[*st_h]);
++		if (sta)
++			an = (struct ath_node *) sta->drv_priv;
++
++		if (delay > 0) {
++			if (delay < ATH_DYN_MAX_DELAY) {
++				if (an) {
++					u32 ackto = delay + min_to;
++					an->ackto = ATH_DYNACK_EWMA(an->ackto,
++							ackto, ATH_DYN_EWMA);
++#ifdef CONFIG_ATH9K_DYNACK_DEBUG
++					printk(KERN_DEBUG "%s:%pM\tackto %u\n",
++						__func__, sta->addr,
++						an->ackto);
++#endif
++				}
++				INCR(*ack_h, ATH_DYN_BUF);
 +			}
 +			INCR(*st_h, ATH_DYN_BUF);
 +		} else
@@ -251,19 +317,34 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +			     struct ath_tx_status *ts)
 +{
 +	u8 ridx = ts->ts_rateindex;
++	u32 phy = WLAN_RC_PHY_OFDM;
++	const struct ieee80211_rate *rate = NULL;
++	struct ieee80211_sta *sta = NULL;
 +	struct ath_dynack *da = &sc->dynack;
 +	u16 *head = &da->st_rbf.h_rb, *tail = &da->st_rbf.t_rb;
 +	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
++	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 +
 +	if ((info->flags & IEEE80211_TX_CTL_NO_ACK) || da->fix_to)
 +		return;
 +
++	rcu_read_lock();
++	sta = ieee80211_find_sta_by_ifaddr(sc->hw, hdr->addr1,
++					   hdr->addr2);
 +	spin_lock_bh(&da->qlock);
 +	da->st_rbf.ts[*tail].tstamp = ts->ts_tstamp;
 +	da->st_rbf.ts[*tail].dur = ts->duration[ts->ts_rateindex];
++	da->st_rbf.stalist[*tail] = sta;
 +
-+	if (!(info->control.rates[ridx].flags & IEEE80211_TX_RC_MCS))
-+		da->st_rbf.ts[*tail].dur -= ath9k_hw_get_sifs_time(sc->sc_ah);
++	if (!(info->control.rates[ridx].flags & IEEE80211_TX_RC_MCS)) {
++		struct ieee80211_tx_rate *rates = info->status.rates;
++
++		rate = &sc->sbands[info->band].bitrates[rates[ridx].idx];
++		if ((info->band == IEEE80211_BAND_2GHZ) &&
++		    !(rate->flags & IEEE80211_RATE_ERP_G))
++			phy = WLAN_RC_PHY_CCK;
++		da->st_rbf.ts[*tail].dur -= ath_dynack_get_sifs(sc, phy);
++	}
 +
 +#ifdef CONFIG_ATH9K_DYNACK_DEBUG
 +	printk(KERN_DEBUG "%s: %pM sample %u [dur %u][h %u-t %u]\n",
@@ -277,6 +358,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +
 +	/* compute sta acktimeout */
 +	ath_dynack_compute_to(sc);
++	rcu_read_unlock();
 +
 +	spin_unlock_bh(&da->qlock);
 +}
@@ -291,10 +373,10 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +void ath_dynack_sample_ack_ts(struct ath_softc *sc, struct sk_buff *skb,
 +			      u64 ts)
 +{
-+	const struct ieee80211_rate *rate;
++	u32 phy = WLAN_RC_PHY_OFDM;
++	const struct ieee80211_rate *rate = NULL;
 +	struct ath_dynack *da = &sc->dynack;
 +	u16 *head = &da->ack_rbf.h_rb, *tail = &da->ack_rbf.t_rb;
-+	u32 phy = WLAN_RC_PHY_OFDM;
 +	struct ieee80211_rx_status *info = IEEE80211_SKB_RXCB(skb);
 +
 +	if (da->fix_to)
@@ -310,7 +392,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +	da->ack_rbf.ts[*tail].dur = ath9k_hw_computetxtime(sc->sc_ah,
 +		phy, rate->bitrate * 100, skb->len, info->rate_idx,
 +		!!(info->flag & RX_FLAG_SHORTPRE));
-+	da->ack_rbf.ts[*tail].dur -= ath9k_hw_get_sifs_time(sc->sc_ah);
++	da->ack_rbf.ts[*tail].dur -= ath_dynack_get_sifs(sc, phy);
 +
 +#ifdef CONFIG_ATH9K_DYNACK_DEBUG
 +	printk(KERN_DEBUG "%s: sample %u [dur %u][h %u-t %u]\n",
@@ -322,8 +404,10 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +	if (*tail == *head)
 +		INCR(*head, ATH_DYN_BUF);
 +
++	rcu_read_lock();
 +	/* compute sta acktimeout */
 +	ath_dynack_compute_to(sc);
++	rcu_read_unlock();
 +
 +	spin_unlock_bh(&da->qlock);
 +}
