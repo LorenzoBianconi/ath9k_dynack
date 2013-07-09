@@ -1,7 +1,7 @@
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/ath9k.h
 ===================================================================
 --- compat-wireless-2013-04-16.orig/drivers/net/wireless/ath/ath9k/ath9k.h	2013-06-15 16:20:17.701822187 +0200
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-08 02:40:17.766862999 +0200
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-09 23:09:26.341387000 +0200
 @@ -27,6 +27,7 @@
  #include "common.h"
  #include "mci.h"
@@ -71,19 +71,19 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/init.c
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c
 ===================================================================
 --- compat-wireless-2013-04-16.orig/drivers/net/wireless/ath/ath9k/main.c	2013-06-15 16:20:17.701822187 +0200
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c	2013-07-08 02:10:47.610862999 +0200
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c	2013-07-09 22:59:15.857387000 +0200
 @@ -330,6 +330,10 @@
  	an->sta = sta;
  	an->vif = vif;
  
 +	mutex_lock(&sc->nodes_mtx);
-+	list_add_rcu(&an->list, &sc->nodes);
++	list_add_tail_rcu(&an->list, &sc->nodes);
 +	mutex_unlock(&sc->nodes_mtx);
 +
  	ath_tx_node_init(sc, an);
  
  	if (sta->ht_cap.ht_supported) {
-@@ -342,6 +346,11 @@
+@@ -342,6 +346,13 @@
  static void ath_node_detach(struct ath_softc *sc, struct ieee80211_sta *sta)
  {
  	struct ath_node *an = (struct ath_node *)sta->drv_priv;
@@ -92,10 +92,12 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c
 +	list_del_rcu(&an->list);
 +	mutex_unlock(&sc->nodes_mtx);
 +
++	synchronize_rcu();
++
  	ath_tx_node_cleanup(sc, an);
  }
  
-@@ -1802,6 +1811,9 @@
+@@ -1802,6 +1813,9 @@
  	mutex_lock(&sc->mutex);
  	ah->coverage_class = coverage_class;
  
@@ -108,8 +110,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-08 02:39:50.214862999 +0200
-@@ -0,0 +1,56 @@
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-09 23:59:36.481387000 +0200
+@@ -0,0 +1,53 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -123,6 +125,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 +#define ATH_DYN_BUF		64
 +#define ATH_DYN_MAX_DELAY	300
 +#define ATH_DYN_EWMA		75
++#define ATH_DYN_COMPUTE_TO	(30 * HZ)
 +
 +struct ts_info {
 +	int tstamp;
@@ -130,18 +133,9 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 +};
 +
 +/**
-+ * ath_dyn_txbuf - tx ts ring buffer
++ * ath_dyn_buf - ts ring buffer
 + */
-+struct ath_dyn_txbuf {
-+	u16 h_rb, t_rb;
-+	struct ts_info ts[ATH_DYN_BUF];
-+	struct ieee80211_sta *stalist[ATH_DYN_BUF];
-+};
-+
-+/**
-+ * ath_dyn_rxbuf - rx ts ring buffer
-+ */
-+struct ath_dyn_rxbuf {
++struct ath_dyn_buf {
 +	u16 h_rb, t_rb;
 +	struct ts_info ts[ATH_DYN_BUF];
 +};
@@ -149,14 +143,19 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 +/**
 + * ath_dynack - dyn ack processing info
 + * @fix_to: use static ack timeout
-+ *
++ * @lcompute_ts: last ack timeout computation
++ * @qlock: ts queue spinlock
++ * @ack_rbf: ack ts ring buffer
++ * @st_rbf: status ts ring buffer
++ * @stalist: sta list ts ring buffer
 + */
 +struct ath_dynack {
 +	bool fix_to;
++	unsigned long lcompute_ts;
 +
 +	spinlock_t qlock;
-+	struct ath_dyn_rxbuf ack_rbf;
-+	struct ath_dyn_txbuf st_rbf;
++	struct ath_dyn_buf ack_rbf, st_rbf;
++	struct ieee80211_sta *stalist[ATH_DYN_BUF];
 +};
 +
 +void ath_dynack_init(struct ath_softc *sc);
@@ -183,8 +182,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/Makefile
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-08 02:55:42.706862999 +0200
-@@ -0,0 +1,226 @@
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-10 00:00:34.917387000 +0200
+@@ -0,0 +1,256 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -244,6 +243,27 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +}
 +
 +/**
++ * ath_dynack_set_ackto - compute ack timeout based on sta timeout
++ * @sc: soft carrier
++ */
++static void ath_dynack_compute_ackto(struct ath_softc *sc)
++{
++	struct ath_node *an;
++	u16 to = 0, ackto = ath9k_hw_get_ack_timeout(sc->sc_ah);
++
++	list_for_each_entry_rcu(an, &sc->nodes, list) {
++		if (an->ackto > to)
++			to = an->ackto;
++	}
++	if (to && ackto != to) {
++#ifdef CONFIG_ATH9K_DYNACK_DEBUG
++		printk(KERN_DEBUG "%s: ack timeout %u\n", __func__, ackto);
++#endif
++		ath9k_hw_set_ack_timeout(sc->sc_ah, ackto);
++	}
++}
++
++/**
 + * ath_dynack_compute_to - compute sta ack timeout
 + * @sc: soft carrier
 + *
@@ -251,6 +271,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 + */
 +static void ath_dynack_compute_to(struct ath_softc *sc)
 +{
++
++	unsigned long compute_ts;
 +	int delay, min_to = ath_dynack_min_to(sc);
 +	struct ath_node *an = NULL;
 +	struct ieee80211_sta *sta = NULL;
@@ -263,7 +285,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +	       da->ack_rbf.h_rb != da->ack_rbf.t_rb) {
 +		delay = ack_ts->tstamp - st_ts->tstamp - ack_ts->dur - st_ts->dur;
 +
-+		sta = rcu_dereference(da->st_rbf.stalist[*st_h]);
++		sta = rcu_dereference(da->stalist[*st_h]);
 +		if (sta)
 +			an = (struct ath_node *) sta->drv_priv;
 +
@@ -271,6 +293,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +			if (delay < ATH_DYN_MAX_DELAY) {
 +				if (an) {
 +					u32 ackto = delay + min_to;
++					compute_ts = da->lcompute_ts +
++						     ATH_DYN_COMPUTE_TO;
 +					an->ackto = ATH_DYNACK_EWMA(an->ackto,
 +							ackto, ATH_DYN_EWMA);
 +#ifdef CONFIG_ATH9K_DYNACK_DEBUG
@@ -278,6 +302,10 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +						__func__, sta->addr,
 +						an->ackto);
 +#endif
++					if (time_is_before_jiffies(compute_ts)) {
++						ath_dynack_compute_ackto(sc);
++						da->lcompute_ts = jiffies;
++					}
 +				}
 +				INCR(*ack_h, ATH_DYN_BUF);
 +			}
@@ -285,25 +313,6 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +		} else
 +			INCR(*ack_h, ATH_DYN_BUF);
 +	}
-+}
-+
-+/**
-+ * ath_dynack_init - init dynack data structure
-+ * @sc: soft carrier
-+ *
-+ */
-+void ath_dynack_init(struct ath_softc *sc)
-+{
-+	struct ath_dynack *da = &sc->dynack;
-+
-+	spin_lock_init(&da->qlock);
-+
-+	/* init acktimeout */
-+	ath9k_hw_set_ack_timeout(sc->sc_ah, 64);
-+}
-+
-+void ath_dynack_deinit(struct ath_softc *sc)
-+{
 +}
 +
 +/**
@@ -334,7 +343,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +	spin_lock_bh(&da->qlock);
 +	da->st_rbf.ts[*tail].tstamp = ts->ts_tstamp;
 +	da->st_rbf.ts[*tail].dur = ts->duration[ts->ts_rateindex];
-+	da->st_rbf.stalist[*tail] = sta;
++	da->stalist[*tail] = sta;
 +
 +	if (!(info->control.rates[ridx].flags & IEEE80211_TX_RC_MCS)) {
 +		struct ieee80211_tx_rate *rates = info->status.rates;
@@ -411,6 +420,26 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +
 +	spin_unlock_bh(&da->qlock);
 +}
++
++/**
++ * ath_dynack_init - init dynack data structure
++ * @sc: soft carrier
++ *
++ */
++void ath_dynack_init(struct ath_softc *sc)
++{
++	struct ath_dynack *da = &sc->dynack;
++
++	spin_lock_init(&da->qlock);
++
++	/* init acktimeout */
++	ath9k_hw_set_ack_timeout(sc->sc_ah, 64);
++}
++
++void ath_dynack_deinit(struct ath_softc *sc)
++{
++}
++
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/recv.c
 ===================================================================
 --- compat-wireless-2013-04-16.orig/drivers/net/wireless/ath/ath9k/recv.c	2013-06-15 16:19:16.849822187 +0200
