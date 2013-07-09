@@ -182,8 +182,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/Makefile
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-10 00:00:34.917387000 +0200
-@@ -0,0 +1,256 @@
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-10 00:53:10.129387000 +0200
+@@ -0,0 +1,258 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -260,6 +260,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +		printk(KERN_DEBUG "%s: ack timeout %u\n", __func__, ackto);
 +#endif
 +		ath9k_hw_set_ack_timeout(sc->sc_ah, ackto);
++		ath9k_hw_set_cts_timeout(sc->sc_ah, ackto);
 +	}
 +}
 +
@@ -434,6 +435,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +
 +	/* init acktimeout */
 +	ath9k_hw_set_ack_timeout(sc->sc_ah, 64);
++	ath9k_hw_set_cts_timeout(sc->sc_ah, 64);
 +}
 +
 +void ath_dynack_deinit(struct ath_softc *sc)
@@ -607,7 +609,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/debug.c
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/hw.c
 ===================================================================
 --- compat-wireless-2013-04-16.orig/drivers/net/wireless/ath/ath9k/hw.c	2013-06-15 16:19:17.061822187 +0200
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/hw.c	2013-07-04 23:42:04.330733000 +0200
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/hw.c	2013-07-10 00:52:00.293387000 +0200
 @@ -1007,6 +1007,15 @@
  	REG_WRITE(ah, AR_D_GBL_IFS_SIFS, val);
  }
@@ -624,7 +626,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/hw.c
  static void ath9k_hw_setslottime(struct ath_hw *ah, u32 us)
  {
  	u32 val = ath9k_hw_mac_to_clks(ah, us);
-@@ -1014,12 +1023,31 @@
+@@ -1014,19 +1023,39 @@
  	REG_WRITE(ah, AR_D_GBL_IFS_SLOT, val);
  }
  
@@ -645,7 +647,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/hw.c
  	REG_RMW_FIELD(ah, AR_TIME_OUT, AR_TIME_OUT_ACK, val);
  }
 +EXPORT_SYMBOL(ath9k_hw_set_ack_timeout);
-+
+ 
+-static void ath9k_hw_set_cts_timeout(struct ath_hw *ah, u32 us)
 +u32 ath9k_hw_get_ack_timeout(struct ath_hw *ah)
 +{
 +	u32 val = REG_READ_FIELD(ah, AR_TIME_OUT, AR_TIME_OUT_ACK);
@@ -654,10 +657,18 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/hw.c
 +	return  (common->clockrate) ? val / common->clockrate : 0;
 +}
 +EXPORT_SYMBOL(ath9k_hw_get_ack_timeout);
- 
- static void ath9k_hw_set_cts_timeout(struct ath_hw *ah, u32 us)
++
++void ath9k_hw_set_cts_timeout(struct ath_hw *ah, u32 us)
  {
-@@ -1045,6 +1073,7 @@
+ 	u32 val = ath9k_hw_mac_to_clks(ah, us);
+ 	val = min(val, (u32) MS(0xFFFFFFFF, AR_TIME_OUT_CTS));
+ 	REG_RMW_FIELD(ah, AR_TIME_OUT, AR_TIME_OUT_CTS, val);
+ }
++EXPORT_SYMBOL(ath9k_hw_set_cts_timeout);
+ 
+ static bool ath9k_hw_set_global_txtimeout(struct ath_hw *ah, u32 tu)
+ {
+@@ -1045,6 +1074,7 @@
  void ath9k_hw_init_global_settings(struct ath_hw *ah)
  {
  	struct ath_common *common = ath9k_hw_common(ah);
@@ -665,23 +676,26 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/hw.c
  	struct ieee80211_conf *conf = &common->hw->conf;
  	const struct ath9k_channel *chan = ah->curchan;
  	int acktimeout, ctstimeout, ack_offset = 0;
-@@ -1129,7 +1158,10 @@
+@@ -1129,8 +1159,12 @@
  
  	ath9k_hw_set_sifs_time(ah, sifstime);
  	ath9k_hw_setslottime(ah, slottime);
 -	ath9k_hw_set_ack_timeout(ah, acktimeout);
+-	ath9k_hw_set_cts_timeout(ah, ctstimeout);
 +
-+	if (sc->dynack.fix_to)
++	if (sc->dynack.fix_to) {
 +		ath9k_hw_set_ack_timeout(ah, acktimeout);
++		ath9k_hw_set_cts_timeout(ah, ctstimeout);
++	}
 +
- 	ath9k_hw_set_cts_timeout(ah, ctstimeout);
  	if (ah->globaltxtimeout != (u32) -1)
  		ath9k_hw_set_global_txtimeout(ah, ah->globaltxtimeout);
+ 
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/hw.h
 ===================================================================
 --- compat-wireless-2013-04-16.orig/drivers/net/wireless/ath/ath9k/hw.h	2013-06-15 16:19:17.061822187 +0200
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/hw.h	2013-07-04 23:32:18.910733000 +0200
-@@ -1039,6 +1039,11 @@
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/hw.h	2013-07-10 00:50:33.049387000 +0200
+@@ -1039,6 +1039,12 @@
  bool ath9k_hw_setpower(struct ath_hw *ah, enum ath9k_power_mode mode);
  void ath9k_hw_update_diag(struct ath_hw *ah);
  
@@ -689,6 +703,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/hw.h
 +u32 ath9k_hw_get_ack_timeout(struct ath_hw *ah);
 +u32 ath9k_hw_get_slottime(struct ath_hw *ah);
 +void ath9k_hw_set_ack_timeout(struct ath_hw *ah, u32 us);
++void ath9k_hw_set_cts_timeout(struct ath_hw *ah, u32 us);
 +
  #ifdef CONFIG_ATH9K_DEBUGFS
  void ath9k_debug_sync_cause(struct ath_common *common, u32 sync_cause);

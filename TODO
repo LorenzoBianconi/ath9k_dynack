@@ -1,3 +1,4 @@
  - 5/10MHz channel offset...done
- - add cts timeout/cts timeout
+ - add cts timeout/cts timeout...done
  - add late ack handling
+ - add ar9003 duration field management
