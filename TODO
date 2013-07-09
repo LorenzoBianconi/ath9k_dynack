@@ -1,2 +1,3 @@
- - 5/10MHz channel offset
+ - 5/10MHz channel offset...done
  - add cts timeout/cts timeout
+ - add late ack handling
