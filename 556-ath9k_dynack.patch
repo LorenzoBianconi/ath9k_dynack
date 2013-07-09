@@ -110,8 +110,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/main.c
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-09 23:59:36.481387000 +0200
-@@ -0,0 +1,53 @@
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-10 01:40:14.213387000 +0200
+@@ -0,0 +1,54 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -126,6 +126,7 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.h
 +#define ATH_DYN_MAX_DELAY	300
 +#define ATH_DYN_EWMA		75
 +#define ATH_DYN_COMPUTE_TO	(30 * HZ)
++#define ATH_DYN_LATE_ACK_TO	(30 * HZ)
 +
 +struct ts_info {
 +	int tstamp;
@@ -182,8 +183,8 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/Makefile
 Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-10 00:53:10.129387000 +0200
-@@ -0,0 +1,258 @@
++++ compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-10 01:53:27.937387000 +0200
+@@ -0,0 +1,275 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -341,6 +342,21 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 +	rcu_read_lock();
 +	sta = ieee80211_find_sta_by_ifaddr(sc->hw, hdr->addr1,
 +					   hdr->addr2);
++
++	/* bump ack ack to for "late" ack management */
++	if (!sta && (ts->ts_status & ATH9K_TXERR_XRETRY) &&
++	    ieee80211_is_mgmt(hdr->frame_control)) {
++		u16 ackto = ath_dynack_min_to(sc) + 128;
++
++#ifdef CONFIG_ATH9K_DYNACK_DEBUG
++		printk(KERN_DEBUG "%s: %pM late ack\n", __func__, sta->addr);
++#endif
++		ath9k_hw_set_ack_timeout(sc->sc_ah, ackto);
++		ath9k_hw_set_cts_timeout(sc->sc_ah, ackto);
++		da->lcompute_ts = jiffies + ATH_DYN_LATE_ACK_TO;
++		return;
++	}
++
 +	spin_lock_bh(&da->qlock);
 +	da->st_rbf.ts[*tail].tstamp = ts->ts_tstamp;
 +	da->st_rbf.ts[*tail].dur = ts->duration[ts->ts_rateindex];
@@ -429,13 +445,15 @@ Index: compat-wireless-2013-04-16/drivers/net/wireless/ath/ath9k/dynack.c
 + */
 +void ath_dynack_init(struct ath_softc *sc)
 +{
++	/* ackto = slottime + sifs + air delay */
++	u16 ackto = ATH9K_SLOT_TIME_9 + 16 + 64;
 +	struct ath_dynack *da = &sc->dynack;
 +
 +	spin_lock_init(&da->qlock);
 +
 +	/* init acktimeout */
-+	ath9k_hw_set_ack_timeout(sc->sc_ah, 64);
-+	ath9k_hw_set_cts_timeout(sc->sc_ah, 64);
++	ath9k_hw_set_ack_timeout(sc->sc_ah, ackto);
++	ath9k_hw_set_cts_timeout(sc->sc_ah, ackto);
 +}
 +
 +void ath_dynack_deinit(struct ath_softc *sc)
