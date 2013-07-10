@@ -183,8 +183,8 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/Makefile
 Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-10 11:06:35.629712868 +0200
-@@ -0,0 +1,275 @@
++++ cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-10 14:01:09.337803211 +0200
+@@ -0,0 +1,271 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -250,6 +250,7 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +static void ath_dynack_compute_ackto(struct ath_softc *sc)
 +{
 +	struct ath_node *an;
++	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 +	u16 to = 0, ackto = ath9k_hw_get_ack_timeout(sc->sc_ah);
 +
 +	list_for_each_entry_rcu(an, &sc->nodes, list) {
@@ -257,11 +258,9 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +			to = an->ackto;
 +	}
 +	if (to && ackto != to) {
-+#ifdef CONFIG_ATH9K_DYNACK_DEBUG
-+		printk(KERN_DEBUG "%s: ack timeout %u\n", __func__, ackto);
-+#endif
-+		ath9k_hw_set_ack_timeout(sc->sc_ah, ackto);
-+		ath9k_hw_set_cts_timeout(sc->sc_ah, ackto);
++		ath_dbg(common, DYNACK, "ack timeout %u\n", to);
++		ath9k_hw_set_ack_timeout(sc->sc_ah, to);
++		ath9k_hw_set_cts_timeout(sc->sc_ah, to);
 +	}
 +}
 +
@@ -278,6 +277,7 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +	int delay, min_to = ath_dynack_min_to(sc);
 +	struct ath_node *an = NULL;
 +	struct ieee80211_sta *sta = NULL;
++	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 +	struct ath_dynack *da = &sc->dynack;
 +	u16 *ack_h = &da->ack_rbf.h_rb, *st_h = &da->st_rbf.h_rb;
 +	struct ts_info *ack_ts = &da->ack_rbf.ts[*ack_h];
@@ -299,11 +299,9 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +						     ATH_DYN_COMPUTE_TO;
 +					an->ackto = ATH_DYNACK_EWMA(an->ackto,
 +							ackto, ATH_DYN_EWMA);
-+#ifdef CONFIG_ATH9K_DYNACK_DEBUG
-+					printk(KERN_DEBUG "%s:%pM\tackto %u\n",
-+						__func__, sta->addr,
++					ath_dbg(common, DYNACK,
++						"{%pM}\tackto %u\n", sta->addr,
 +						an->ackto);
-+#endif
 +					if (time_is_before_jiffies(compute_ts)) {
 +						ath_dynack_compute_ackto(sc);
 +						da->lcompute_ts = jiffies;
@@ -331,6 +329,7 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +	u32 phy = WLAN_RC_PHY_OFDM;
 +	const struct ieee80211_rate *rate = NULL;
 +	struct ieee80211_sta *sta = NULL;
++	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 +	struct ath_dynack *da = &sc->dynack;
 +	u16 *head = &da->st_rbf.h_rb, *tail = &da->st_rbf.t_rb;
 +	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
@@ -348,9 +347,7 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +	    ieee80211_is_mgmt(hdr->frame_control)) {
 +		u16 ackto = ath_dynack_min_to(sc) + 128;
 +
-+#ifdef CONFIG_ATH9K_DYNACK_DEBUG
-+		printk(KERN_DEBUG "%s: %pM late ack\n", __func__, sta->addr);
-+#endif
++		ath_dbg(common, DYNACK, "%pM late ack\n", sta->addr);
 +		ath9k_hw_set_ack_timeout(sc->sc_ah, ackto);
 +		ath9k_hw_set_cts_timeout(sc->sc_ah, ackto);
 +		da->lcompute_ts = jiffies + ATH_DYN_LATE_ACK_TO;
@@ -372,11 +369,9 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +		da->st_rbf.ts[*tail].dur -= ath_dynack_get_sifs(sc, phy);
 +	}
 +
-+#ifdef CONFIG_ATH9K_DYNACK_DEBUG
-+	printk(KERN_DEBUG "%s: %pM sample %u [dur %u][h %u-t %u]\n",
-+	       __func__, hdr->addr1, da->st_rbf.ts[*tail].tstamp,
++	ath_dbg(common, DYNACK, "{%pM} tx sample %u [dur %u][h %u-t %u]\n",
++		hdr->addr1, da->st_rbf.ts[*tail].tstamp,
 +		da->st_rbf.ts[*tail].dur, *head, (*tail + 1) % ATH_DYN_BUF);
-+#endif
 +
 +	INCR(*tail, ATH_DYN_BUF);
 +	if (*tail == *head)
@@ -401,6 +396,7 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +{
 +	u32 phy = WLAN_RC_PHY_OFDM;
 +	const struct ieee80211_rate *rate = NULL;
++	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 +	struct ath_dynack *da = &sc->dynack;
 +	u16 *head = &da->ack_rbf.h_rb, *tail = &da->ack_rbf.t_rb;
 +	struct ieee80211_rx_status *info = IEEE80211_SKB_RXCB(skb);
@@ -420,11 +416,9 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +		!!(info->flag & RX_FLAG_SHORTPRE));
 +	da->ack_rbf.ts[*tail].dur -= ath_dynack_get_sifs(sc, phy);
 +
-+#ifdef CONFIG_ATH9K_DYNACK_DEBUG
-+	printk(KERN_DEBUG "%s: sample %u [dur %u][h %u-t %u]\n",
-+		__func__, da->ack_rbf.ts[*tail].tstamp,
-+		da->ack_rbf.ts[*tail].dur, *head, (*tail + 1) % ATH_DYN_BUF);
-+#endif
++	ath_dbg(common, DYNACK, "rx sample %u [dur %u][h %u-t %u]\n",
++		da->ack_rbf.ts[*tail].tstamp, da->ack_rbf.ts[*tail].dur,
++		*head, (*tail + 1) % ATH_DYN_BUF);
 +
 +	INCR(*tail, ATH_DYN_BUF);
 +	if (*tail == *head)
@@ -454,6 +448,8 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +	/* init acktimeout */
 +	ath9k_hw_set_ack_timeout(sc->sc_ah, ackto);
 +	ath9k_hw_set_cts_timeout(sc->sc_ah, ackto);
++
++	da->lcompute_ts = jiffies;
 +}
 +
 +void ath_dynack_deinit(struct ath_softc *sc)
@@ -726,3 +722,16 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/hw.h
  #ifdef CPTCFG_ATH9K_DEBUGFS
  void ath9k_debug_sync_cause(struct ath_common *common, u32 sync_cause);
  #else
+Index: cw-dynack/drivers/net/wireless/ath/ath.h
+===================================================================
+--- cw-dynack.orig/drivers/net/wireless/ath/ath.h	2013-07-10 11:05:54.373980038 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath.h	2013-07-10 13:10:04.185638441 +0200
+@@ -245,7 +245,7 @@
+ 	ATH_DBG_BSTUCK		= 0x00004000,
+ 	ATH_DBG_MCI		= 0x00008000,
+ 	ATH_DBG_DFS		= 0x00010000,
+-	ATH_DBG_WOW		= 0x00020000,
++	ATH_DBG_DYNACK		= 0x00040000,
+ 	ATH_DBG_ANY		= 0xffffffff
+ };
+ 
