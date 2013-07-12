@@ -1,7 +1,7 @@
 Index: cw-dynack/drivers/net/wireless/ath/ath9k/ath9k.h
 ===================================================================
 --- cw-dynack.orig/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-10 11:06:35.637712816 +0200
-+++ cw-dynack/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-10 11:07:53.013212059 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-12 09:32:27.000000000 +0200
 @@ -27,6 +27,7 @@
  #include "common.h"
  #include "mci.h"
@@ -71,7 +71,7 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/init.c
 Index: cw-dynack/drivers/net/wireless/ath/ath9k/main.c
 ===================================================================
 --- cw-dynack.orig/drivers/net/wireless/ath/ath9k/main.c	2013-07-10 11:06:35.637712816 +0200
-+++ cw-dynack/drivers/net/wireless/ath/ath9k/main.c	2013-07-10 11:06:35.613712971 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/main.c	2013-07-12 09:39:32.775541924 +0200
 @@ -329,6 +329,10 @@
  	an->sta = sta;
  	an->vif = vif;
@@ -97,10 +97,11 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/main.c
  	ath_tx_node_cleanup(sc, an);
  }
  
-@@ -1794,6 +1805,9 @@
+@@ -1794,6 +1805,10 @@
  	mutex_lock(&sc->mutex);
  	ah->coverage_class = coverage_class;
  
++	/* disable dynack processing */
 +	sc->dynack.fix_to = true;
 +	ath_dynack_deinit(sc);
 +
@@ -110,7 +111,7 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/main.c
 Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.h
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ cw-dynack/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-10 11:06:35.625712894 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-10 20:43:00.000000000 +0200
 @@ -0,0 +1,54 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
@@ -183,7 +184,7 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/Makefile
 Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-10 14:01:09.337803211 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-12 09:35:46.393112341 +0200
 @@ -0,0 +1,271 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
@@ -359,7 +360,7 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +	da->st_rbf.ts[*tail].dur = ts->duration[ts->ts_rateindex];
 +	da->stalist[*tail] = sta;
 +
-+	if (!(info->control.rates[ridx].flags & IEEE80211_TX_RC_MCS)) {
++	if (!(info->status.rates[ridx].flags & IEEE80211_TX_RC_MCS)) {
 +		struct ieee80211_tx_rate *rates = info->status.rates;
 +
 +		rate = &sc->sbands[info->band].bitrates[rates[ridx].idx];
@@ -444,12 +445,12 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 +	struct ath_dynack *da = &sc->dynack;
 +
 +	spin_lock_init(&da->qlock);
++	da->lcompute_ts = jiffies;
++	da->fix_to = false;
 +
 +	/* init acktimeout */
 +	ath9k_hw_set_ack_timeout(sc->sc_ah, ackto);
 +	ath9k_hw_set_cts_timeout(sc->sc_ah, ackto);
-+
-+	da->lcompute_ts = jiffies;
 +}
 +
 +void ath_dynack_deinit(struct ath_softc *sc)
@@ -543,7 +544,7 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/mac.h
 Index: cw-dynack/drivers/net/wireless/ath/ath9k/xmit.c
 ===================================================================
 --- cw-dynack.orig/drivers/net/wireless/ath/ath9k/xmit.c	2013-07-10 11:06:35.637712816 +0200
-+++ cw-dynack/drivers/net/wireless/ath/ath9k/xmit.c	2013-07-10 11:06:35.629712868 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/xmit.c	2013-07-12 09:32:27.000000000 +0200
 @@ -636,6 +636,7 @@
  			memcpy(info->control.rates, bf->rates,
  			       sizeof(info->control.rates));
@@ -623,7 +624,7 @@ Index: cw-dynack/drivers/net/wireless/ath/ath9k/debug.c
 Index: cw-dynack/drivers/net/wireless/ath/ath9k/hw.c
 ===================================================================
 --- cw-dynack.orig/drivers/net/wireless/ath/ath9k/hw.c	2013-07-10 11:06:35.637712816 +0200
-+++ cw-dynack/drivers/net/wireless/ath/ath9k/hw.c	2013-07-10 11:06:35.633712842 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/hw.c	2013-07-12 09:32:27.000000000 +0200
 @@ -1005,6 +1005,15 @@
  	REG_WRITE(ah, AR_D_GBL_IFS_SIFS, val);
  }
