@@ -1,4 +1,12 @@
+ CODING:
  - 5/10MHz channel offset...done
  - add cts timeout/cts timeout...done
  - add late ack handling...done
  - add ar9003 duration field management
+ TESTING:
+ - tesing sta mode MCS rate..done
+ - tesing sta mode legacy rate
+ - tesing ap mode legacy rate
+ - tesing ap mode MCS rate
+ - tesing fixed timeout...done
+
