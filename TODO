@@ -4,9 +4,10 @@
  - add late ack handling...done
  - add ar9003 duration field management
  TESTING:
- - tesing sta mode MCS rate..done
- - tesing sta mode legacy rate
- - tesing ap mode legacy rate
- - tesing ap mode MCS rate
- - tesing fixed timeout...done
+ - testing sta mode MCS rate...done
+ - testing sta mode legacy rate...done
+ - testing ap mode legacy rate...done
+ - testing ap mode MCS rate...done
+ - testing fixed timeout...done
+ - testing di robustezza
 
