@@ -1,7 +1,7 @@
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/ath9k.h
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/ath9k.h
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-13 18:12:45.660907000 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-16 19:01:51.000000000 +0200
 @@ -27,6 +27,7 @@
  #include "common.h"
  #include "mci.h"
@@ -31,10 +31,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/ath9k.h
  };
  
  #define SPECTRAL_SCAN_BITMASK		0x10
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/init.c
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/init.c
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath9k/init.c	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/init.c	2013-07-13 15:42:09.157312000 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath9k/init.c	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/init.c	2013-07-16 19:01:51.000000000 +0200
 @@ -646,6 +646,7 @@
  	spin_lock_init(&sc->sc_serial_rw);
  	spin_lock_init(&sc->sc_pm_lock);
@@ -51,10 +51,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/init.c
  	/*
  	 * Cache line size is used to size and align various
  	 * structures used to communicate with the hardware.
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/main.c
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/main.c
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath9k/main.c	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/main.c	2013-07-13 18:54:01.212907000 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath9k/main.c	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/main.c	2013-07-16 16:13:30.138901099 +0200
 @@ -328,6 +328,11 @@
  	an->sc = sc;
  	an->sta = sta;
@@ -110,10 +110,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/main.c
  	ath9k_ps_wakeup(sc);
  	ath9k_hw_init_global_settings(ah);
  	ath9k_ps_restore(sc);
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/dynack.h
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.h
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-14 12:20:23.972025400 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-16 16:13:30.138901099 +0200
 @@ -0,0 +1,57 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
@@ -172,10 +172,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/dynack.h
 +			      u32 ts);
 +u32 ath_dynack_min_to(struct ath_softc *sc);
 +#endif /* ATH9K_DYNACK_H */
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/Makefile
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/Makefile
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath9k/Makefile	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/Makefile	2013-07-13 15:42:09.169312000 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath9k/Makefile	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/Makefile	2013-07-16 16:13:30.138901099 +0200
 @@ -5,7 +5,8 @@
  		recv.o \
  		xmit.o \
@@ -186,11 +186,11 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/Makefile
  
  ath9k-$(CPTCFG_ATH9K_BTCOEX_SUPPORT) += mci.o
  ath9k-$(CPTCFG_ATH9K_LEGACY_RATE_CONTROL) += rc.o
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/dynack.c
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-14 12:26:13.728025400 +0200
-@@ -0,0 +1,275 @@
++++ cw-dynack/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-16 19:02:53.714772418 +0200
+@@ -0,0 +1,277 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -342,6 +342,7 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/dynack.c
 +	u16 *head = &da->st_rbf.h_rb, *tail = &da->st_rbf.t_rb;
 +	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 +	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
++	__le16 fc = hdr->frame_control;
 +
 +	if ((info->flags & IEEE80211_TX_CTL_NO_ACK) || da->fix_to)
 +		return;
@@ -352,10 +353,11 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/dynack.c
 +
 +	/* bump ack ack to for "late" ack management */
 +	if (!sta && (ts->ts_status & ATH9K_TXERR_XRETRY) &&
-+	    ieee80211_is_mgmt(hdr->frame_control)) {
++	    (ieee80211_is_assoc_req(fc) || ieee80211_is_assoc_resp(fc)) &&
++	    time_is_before_jiffies(da->lcompute_ts)) {
 +		u32 ackto = ath_dynack_min_to(sc) + 128;
 +
-+		ath_dbg(common, DYNACK, "%pM late ack\n", sta->addr);
++		ath_dbg(common, DYNACK, "late ack\n");
 +		da->ackto = ackto;
 +		ath9k_hw_set_ack_timeout(sc->sc_ah, ackto);
 +		ath9k_hw_set_cts_timeout(sc->sc_ah, ackto);
@@ -466,10 +468,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/dynack.c
 +{
 +}
 +
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/recv.c
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/recv.c
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath9k/recv.c	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/recv.c	2013-07-13 15:42:09.173312000 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath9k/recv.c	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/recv.c	2013-07-16 16:13:30.138901099 +0200
 @@ -27,6 +27,19 @@
  	       (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_AUTOSLEEP);
  }
@@ -520,10 +522,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/recv.c
  		ieee80211_rx(hw, skb);
  
  requeue_drop_frag:
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/ar9002_mac.c
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/ar9002_mac.c
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath9k/ar9002_mac.c	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/ar9002_mac.c	2013-07-13 15:42:09.173312000 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath9k/ar9002_mac.c	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/ar9002_mac.c	2013-07-16 16:13:30.142901071 +0200
 @@ -341,6 +341,13 @@
  	ts->evm1 = ads->AR_TxEVM1;
  	ts->evm2 = ads->AR_TxEVM2;
@@ -538,10 +540,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/ar9002_mac.c
  	return 0;
  }
  
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/mac.h
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/mac.h
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath9k/mac.h	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/mac.h	2013-07-13 18:09:57.488907000 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath9k/mac.h	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/mac.h	2013-07-16 16:13:30.142901071 +0200
 @@ -121,6 +121,7 @@
  	u32 evm0;
  	u32 evm1;
@@ -550,10 +552,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/mac.h
  };
  
  struct ath_rx_status {
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/xmit.c
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/xmit.c
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath9k/xmit.c	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/xmit.c	2013-07-13 15:42:09.173312000 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath9k/xmit.c	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/xmit.c	2013-07-16 19:01:51.000000000 +0200
 @@ -536,6 +536,9 @@
  				memcpy(tx_info->control.rates, rates, sizeof(rates));
  				ath_tx_rc_status(sc, bf, ts, nframes, nbad, txok);
@@ -572,10 +574,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/xmit.c
  		}
  		ath_tx_complete_buf(sc, bf, txq, bf_head, ts, txok);
  	} else
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/debug.c
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/debug.c
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath9k/debug.c	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/debug.c	2013-07-14 12:30:26.680025400 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath9k/debug.c	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/debug.c	2013-07-16 16:13:30.142901071 +0200
 @@ -1924,6 +1924,61 @@
  	.llseek = default_llseek,
  };
@@ -649,10 +651,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/debug.c
 +
  	return 0;
  }
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/hw.c
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/hw.c
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath9k/hw.c	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/hw.c	2013-07-14 12:30:42.252025400 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath9k/hw.c	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/hw.c	2013-07-16 16:13:30.146901044 +0200
 @@ -1005,6 +1005,15 @@
  	REG_WRITE(ah, AR_D_GBL_IFS_SIFS, val);
  }
@@ -731,10 +733,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/hw.c
  	ath9k_hw_set_ack_timeout(ah, acktimeout);
  	ath9k_hw_set_cts_timeout(ah, ctstimeout);
  	if (ah->globaltxtimeout != (u32) -1)
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/hw.h
+Index: cw-dynack/drivers/net/wireless/ath/ath9k/hw.h
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath9k/hw.h	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/hw.h	2013-07-13 15:42:09.177312000 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath9k/hw.h	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath9k/hw.h	2013-07-16 16:13:30.146901044 +0200
 @@ -1039,6 +1039,12 @@
  bool ath9k_hw_setpower(struct ath_hw *ah, enum ath9k_power_mode mode);
  void ath9k_hw_update_diag(struct ath_hw *ah);
@@ -748,10 +750,10 @@ Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath9k/hw.h
  #ifdef CPTCFG_ATH9K_DEBUGFS
  void ath9k_debug_sync_cause(struct ath_common *common, u32 sync_cause);
  #else
-Index: compat-wireless-2013-06-27/drivers/net/wireless/ath/ath.h
+Index: cw-dynack/drivers/net/wireless/ath/ath.h
 ===================================================================
---- compat-wireless-2013-06-27.orig/drivers/net/wireless/ath/ath.h	2013-07-13 15:42:09.181312000 +0200
-+++ compat-wireless-2013-06-27/drivers/net/wireless/ath/ath.h	2013-07-13 15:42:54.065312000 +0200
+--- cw-dynack.orig/drivers/net/wireless/ath/ath.h	2013-07-16 16:13:30.150901017 +0200
++++ cw-dynack/drivers/net/wireless/ath/ath.h	2013-07-16 16:13:30.146901044 +0200
 @@ -219,6 +219,7 @@
   *	AR9462.
   * @ATH_DBG_DFS: radar datection
