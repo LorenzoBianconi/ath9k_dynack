@@ -113,8 +113,8 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/main.c
 Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.h
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ cw-aa/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-14 17:31:31.354996273 +0200
-@@ -0,0 +1,57 @@
++++ cw-aa/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-22 00:57:42.559749568 +0200
+@@ -0,0 +1,66 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -127,9 +127,8 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.h
 +
 +#define ATH_DYN_BUF		64
 +#define ATH_DYN_MAX_DELAY	300
-+#define ATH_DYN_EWMA		75
-+#define ATH_DYN_COMPUTE_TO	(30 * HZ)
-+#define ATH_DYN_LATE_ACK_TO	(30 * HZ)
++#define ATH_DYN_COMPUTE_TO	(5 * HZ)
++#define ATH_DYN_LATEACK_TO	(30 * HZ)
 +
 +struct ts_info {
 +	int tstamp;
@@ -137,31 +136,41 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.h
 +};
 +
 +/**
-+ * ath_dyn_buf - ts ring buffer
++ * ath_dyn_rxbuf - ack ring buffer
 + */
-+struct ath_dyn_buf {
++struct ath_dyn_rxbuf {
 +	u16 h_rb, t_rb;
 +	struct ts_info ts[ATH_DYN_BUF];
++};
++
++/**
++ * ath_dyn_txbuf - tx frame ring buffer
++ */
++struct ath_dyn_txbuf {
++	u16 h_rb, t_rb;
++	u8 status[ATH_DYN_BUF];
++	__le16 fc[ATH_DYN_BUF];
++	struct ts_info ts[ATH_DYN_BUF];
++	struct ieee80211_sta *stalist[ATH_DYN_BUF];
 +};
 +
 +/**
 + * ath_dynack - dyn ack processing info
 + * @fix_to: use static ack timeout
 + * @ackto: current ack timeout
-+ * @lcompute_ts: last ack timeout computation
++ * @lto: last ack timeout computation
 + * @qlock: ts queue spinlock
 + * @ack_rbf: ack ts ring buffer
 + * @st_rbf: status ts ring buffer
-+ * @stalist: sta list ts ring buffer
 + */
 +struct ath_dynack {
 +	bool fix_to;
 +	u32 ackto;
-+	unsigned long lcompute_ts;
++	unsigned long lto;
 +
 +	spinlock_t qlock;
-+	struct ath_dyn_buf ack_rbf, st_rbf;
-+	struct ieee80211_sta *stalist[ATH_DYN_BUF];
++	struct ath_dyn_rxbuf ack_rbf;
++	struct ath_dyn_txbuf st_rbf;
 +};
 +
 +void ath_dynack_init(struct ath_softc *sc);
@@ -189,8 +198,8 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/Makefile
 Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.c
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ cw-aa/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-16 19:17:56.240767838 +0200
-@@ -0,0 +1,277 @@
++++ cw-aa/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-22 00:59:27.715020883 +0200
+@@ -0,0 +1,287 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
 + *
@@ -201,7 +210,8 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.c
 +
 +#include "ath9k.h"
 +
-+#define ATH_DYNACK_EWMA(old, new, weight)		\
++#define EWMA_LEVEL	75
++#define ATH_DYNACK_EWMA(old, new, weight)	\
 +	(((new) * (100 - (weight)) + (old) * weight) / 100)
 +
 +/*
@@ -222,6 +232,17 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.c
 +			sifs = OFDM_SIFS_TIME;
 +	}
 +	return sifs;
++}
++
++/**
++ * ath_dynack_lateack - check if this is late ack
++ * @status: tx status
++ * @fc: frame control
++ */
++static inline bool ath_dynack_lateack(u8 status, __le16 fc)
++{
++	return ((ieee80211_is_assoc_req(fc) || ieee80211_is_assoc_resp(fc)) &&
++		(status & ATH9K_TXERR_XRETRY));
 +}
 +
 +/**
@@ -280,40 +301,50 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.c
 + */
 +static void ath_dynack_compute_to(struct ath_softc *sc)
 +{
-+
-+	unsigned long compute_ts;
++	u8 status;
++	__le16 fc;
++	struct ts_info *ack_ts, *st_ts;
 +	int delay, min_to = ath_dynack_min_to(sc);
 +	struct ath_node *an = NULL;
 +	struct ieee80211_sta *sta = NULL;
 +	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 +	struct ath_dynack *da = &sc->dynack;
 +	u16 *ack_h = &da->ack_rbf.h_rb, *st_h = &da->st_rbf.h_rb;
-+	struct ts_info *ack_ts = &da->ack_rbf.ts[*ack_h];
-+	struct ts_info *st_ts = &da->st_rbf.ts[*st_h];
 +
 +	while (da->st_rbf.h_rb != da->st_rbf.t_rb &&
 +	       da->ack_rbf.h_rb != da->ack_rbf.t_rb) {
++		fc = da->st_rbf.fc[*st_h];
++		status = da->st_rbf.status[*st_h];
++		ack_ts = &da->ack_rbf.ts[*ack_h];
++		st_ts = &da->st_rbf.ts[*st_h];
++
 +		delay = ack_ts->tstamp - st_ts->tstamp - ack_ts->dur - st_ts->dur;
 +
-+		sta = rcu_dereference(da->stalist[*st_h]);
++		sta = rcu_dereference(da->st_rbf.stalist[*st_h]);
 +		if (sta)
 +			an = (struct ath_node *) sta->drv_priv;
 +
 +		if (delay > 0) {
++			u32 ackto = delay + min_to;
 +			if (delay < ATH_DYN_MAX_DELAY) {
 +				if (an) {
-+					u32 ackto = delay + min_to;
-+					compute_ts = da->lcompute_ts +
-+						     ATH_DYN_COMPUTE_TO;
 +					an->ackto = ATH_DYNACK_EWMA(an->ackto,
-+							ackto, ATH_DYN_EWMA);
-+					ath_dbg(common, DYNACK,
-+						"{%pM}\tackto %u\n", sta->addr,
-+						an->ackto);
-+					if (time_is_before_jiffies(compute_ts)) {
++							ackto, EWMA_LEVEL);
++					ath_dbg(common, DYNACK, "{%pM}\tackto"
++						" %u\n", sta->addr, an->ackto);
++					if (time_is_before_jiffies(da->lto)) {
 +						ath_dynack_compute_ackto(sc);
-+						da->lcompute_ts = jiffies;
++						da->lto = jiffies +
++							  ATH_DYN_COMPUTE_TO;
 +					}
++				} else if (ath_dynack_lateack(status, fc)) {
++					/* late ack management */
++					ath_dbg(common, DYNACK, "late ack\n");
++					da->lto = jiffies + ATH_DYN_LATEACK_TO;
++					ath9k_hw_set_ack_timeout(sc->sc_ah,
++								 ackto);
++					ath9k_hw_set_cts_timeout(sc->sc_ah,
++								 ackto);
 +				}
 +				INCR(*ack_h, ATH_DYN_BUF);
 +			}
@@ -342,7 +373,6 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.c
 +	u16 *head = &da->st_rbf.h_rb, *tail = &da->st_rbf.t_rb;
 +	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 +	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
-+	__le16 fc = hdr->frame_control;
 +
 +	if ((info->flags & IEEE80211_TX_CTL_NO_ACK) || da->fix_to)
 +		return;
@@ -351,24 +381,12 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.c
 +	sta = ieee80211_find_sta_by_ifaddr(sc->hw, hdr->addr1,
 +					   hdr->addr2);
 +
-+	/* bump ack ack to for "late" ack management */
-+	if (!sta && (ts->ts_status & ATH9K_TXERR_XRETRY) &&
-+	    (ieee80211_is_assoc_req(fc) || ieee80211_is_assoc_resp(fc)) &&
-+	    time_is_before_jiffies(da->lcompute_ts)) {
-+		u32 ackto = ath_dynack_min_to(sc) + 128;
-+
-+		ath_dbg(common, DYNACK, "late ack\n");
-+		da->ackto = ackto;
-+		ath9k_hw_set_ack_timeout(sc->sc_ah, ackto);
-+		ath9k_hw_set_cts_timeout(sc->sc_ah, ackto);
-+		da->lcompute_ts = jiffies + ATH_DYN_LATE_ACK_TO;
-+		return;
-+	}
-+
 +	spin_lock_bh(&da->qlock);
++	da->st_rbf.status[*tail] = ts->ts_status;
++	da->st_rbf.fc[*tail] = hdr->frame_control;
 +	da->st_rbf.ts[*tail].tstamp = ts->ts_tstamp;
 +	da->st_rbf.ts[*tail].dur = ts->duration[ts->ts_rateindex];
-+	da->stalist[*tail] = sta;
++	da->st_rbf.stalist[*tail] = sta;
 +
 +	if (!(info->status.rates[ridx].flags & IEEE80211_TX_RC_MCS)) {
 +		struct ieee80211_tx_rate *rates = info->status.rates;
@@ -390,9 +408,10 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.c
 +
 +	/* compute sta acktimeout */
 +	ath_dynack_compute_to(sc);
-+	rcu_read_unlock();
 +
 +	spin_unlock_bh(&da->qlock);
++
++	rcu_read_unlock();
 +}
 +
 +/**
@@ -455,7 +474,7 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.c
 +	struct ath_dynack *da = &sc->dynack;
 +
 +	spin_lock_init(&da->qlock);
-+	da->lcompute_ts = jiffies;
++	da->lto = jiffies;
 +	da->fix_to = false;
 +	da->ackto = ackto;
 +
