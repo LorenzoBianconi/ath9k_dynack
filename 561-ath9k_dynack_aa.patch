@@ -1,7 +1,7 @@
-Index: cw-aa/drivers/net/wireless/ath/ath9k/ath9k.h
+Index: cwAA/drivers/net/wireless/ath/ath9k/ath9k.h
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath9k/ath9k.h	2013-07-14 17:33:05.734327104 +0200
+--- cwAA.orig/drivers/net/wireless/ath/ath9k/ath9k.h	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/ath9k.h	2013-09-02 23:04:33.263111074 +0200
 @@ -27,6 +27,7 @@
  #include "common.h"
  #include "mci.h"
@@ -10,17 +10,17 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/ath9k.h
  
  /*
   * Header for the ath9k.ko driver core *only* -- hw code nor any other driver
-@@ -268,6 +269,9 @@
- 
+@@ -263,6 +264,9 @@
  	bool sleeping;
+ 	bool no_ps_filter;
  
 +	u32 ackto;
 +	struct list_head list;
 +
- #if defined(CONFIG_MAC80211_DEBUGFS) && defined(CONFIG_ATH9K_DEBUGFS)
+ #if defined(CPTCFG_MAC80211_DEBUGFS) && defined(CPTCFG_ATH9K_DEBUGFS)
  	struct dentry *node_stat;
  #endif
-@@ -774,6 +778,10 @@
+@@ -782,6 +786,10 @@
  	atomic_t wow_sleep_proc_intr; /* in the middle of WoW sleep ? */
  	u32 wow_intr_before_sleep;
  #endif
@@ -31,19 +31,19 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/ath9k.h
  };
  
  #define SPECTRAL_SCAN_BITMASK		0x10
-Index: cw-aa/drivers/net/wireless/ath/ath9k/init.c
+Index: cwAA/drivers/net/wireless/ath/ath9k/init.c
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath9k/init.c	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath9k/init.c	2013-07-14 17:33:39.898084843 +0200
-@@ -615,6 +615,7 @@
+--- cwAA.orig/drivers/net/wireless/ath/ath9k/init.c	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/init.c	2013-09-02 23:04:33.263111074 +0200
+@@ -646,6 +646,7 @@
  	spin_lock_init(&sc->sc_serial_rw);
  	spin_lock_init(&sc->sc_pm_lock);
  	mutex_init(&sc->mutex);
 +	mutex_init(&sc->nodes_mtx);
- #ifdef CONFIG_ATH9K_MAC_DEBUG
- 	spin_lock_init(&sc->debug.samp_lock);
- #endif
-@@ -628,6 +629,7 @@
+ 	tasklet_init(&sc->intr_tq, ath9k_tasklet, (unsigned long)sc);
+ 	tasklet_init(&sc->bcon_tasklet, ath9k_beacon_tasklet,
+ 		     (unsigned long)sc);
+@@ -656,6 +657,7 @@
  	INIT_DELAYED_WORK(&sc->hw_pll_work, ath_hw_pll_work);
  	setup_timer(&sc->rx_poll_timer, ath_rx_poll, (unsigned long)sc);
  
@@ -51,11 +51,11 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/init.c
  	/*
  	 * Cache line size is used to size and align various
  	 * structures used to communicate with the hardware.
-Index: cw-aa/drivers/net/wireless/ath/ath9k/main.c
+Index: cwAA/drivers/net/wireless/ath/ath9k/main.c
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath9k/main.c	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath9k/main.c	2013-07-14 17:31:31.354996273 +0200
-@@ -325,6 +325,11 @@
+--- cwAA.orig/drivers/net/wireless/ath/ath9k/main.c	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/main.c	2013-09-02 23:04:33.263111074 +0200
+@@ -328,6 +328,11 @@
  	an->sc = sc;
  	an->sta = sta;
  	an->vif = vif;
@@ -67,7 +67,7 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/main.c
  
  	ath_tx_node_init(sc, an);
  
-@@ -338,6 +343,13 @@
+@@ -341,6 +346,13 @@
  static void ath_node_detach(struct ath_softc *sc, struct ieee80211_sta *sta)
  {
  	struct ath_node *an = (struct ath_node *)sta->drv_priv;
@@ -81,7 +81,7 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/main.c
  	ath_tx_node_cleanup(sc, an);
  }
  
-@@ -668,6 +680,8 @@
+@@ -671,6 +683,8 @@
  
  	ath9k_ps_restore(sc);
  
@@ -90,7 +90,7 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/main.c
  	return 0;
  }
  
-@@ -820,6 +834,8 @@
+@@ -823,6 +837,8 @@
  
  	mutex_unlock(&sc->mutex);
  
@@ -99,7 +99,7 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/main.c
  	ath_dbg(common, CONFIG, "Driver halt\n");
  }
  
-@@ -1776,6 +1792,10 @@
+@@ -1802,6 +1818,10 @@
  	mutex_lock(&sc->mutex);
  	ah->coverage_class = coverage_class;
  
@@ -110,10 +110,10 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/main.c
  	ath9k_ps_wakeup(sc);
  	ath9k_hw_init_global_settings(ah);
  	ath9k_ps_restore(sc);
-Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.h
+Index: cwAA/drivers/net/wireless/ath/ath9k/dynack.h
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ cw-aa/drivers/net/wireless/ath/ath9k/dynack.h	2013-07-22 00:57:42.559749568 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/dynack.h	2013-09-02 23:04:33.263111074 +0200
 @@ -0,0 +1,66 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
@@ -181,10 +181,10 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.h
 +			      u32 ts);
 +u32 ath_dynack_min_to(struct ath_softc *sc);
 +#endif /* ATH9K_DYNACK_H */
-Index: cw-aa/drivers/net/wireless/ath/ath9k/Makefile
+Index: cwAA/drivers/net/wireless/ath/ath9k/Makefile
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath9k/Makefile	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath9k/Makefile	2013-07-14 17:31:31.354996273 +0200
+--- cwAA.orig/drivers/net/wireless/ath/ath9k/Makefile	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/Makefile	2013-09-02 23:04:33.263111074 +0200
 @@ -5,7 +5,8 @@
  		recv.o \
  		xmit.o \
@@ -193,12 +193,12 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/Makefile
 +		antenna.o \
 +		dynack.o
  
- ath9k-$(CONFIG_ATH9K_BTCOEX_SUPPORT) += mci.o
- ath9k-$(CONFIG_COMPAT_ATH9K_RATE_CONTROL) += rc.o
-Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.c
+ ath9k-$(CPTCFG_ATH9K_BTCOEX_SUPPORT) += mci.o
+ ath9k-$(CPTCFG_ATH9K_LEGACY_RATE_CONTROL) += rc.o
+Index: cwAA/drivers/net/wireless/ath/ath9k/dynack.c
 ===================================================================
 --- /dev/null	1970-01-01 00:00:00.000000000 +0000
-+++ cw-aa/drivers/net/wireless/ath/ath9k/dynack.c	2013-07-22 00:59:27.715020883 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/dynack.c	2013-09-02 23:04:33.263111074 +0200
 @@ -0,0 +1,287 @@
 +/*
 + * Copyright 2013-2014, Lorenzo Bianconi <lorenzo.bianconi83@gmail.com>
@@ -487,10 +487,10 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/dynack.c
 +{
 +}
 +
-Index: cw-aa/drivers/net/wireless/ath/ath9k/recv.c
+Index: cwAA/drivers/net/wireless/ath/ath9k/recv.c
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath9k/recv.c	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath9k/recv.c	2013-07-14 17:31:31.354996273 +0200
+--- cwAA.orig/drivers/net/wireless/ath/ath9k/recv.c	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/recv.c	2013-09-02 23:04:33.263111074 +0200
 @@ -27,6 +27,19 @@
  	       (sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_AUTOSLEEP);
  }
@@ -511,16 +511,16 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/recv.c
  /*
   * Setup and link descriptors.
   *
-@@ -379,7 +392,7 @@
+@@ -376,7 +389,7 @@
  	u32 rfilt;
  
  	rfilt = ATH9K_RX_FILTER_UCAST | ATH9K_RX_FILTER_BCAST
 -		| ATH9K_RX_FILTER_MCAST;
 +		| ATH9K_RX_FILTER_MCAST | ATH9K_RX_FILTER_CONTROL;
  
- 	if (sc->rx.rxfilter & FIF_PROBE_REQ)
- 		rfilt |= ATH9K_RX_FILTER_PROBEREQ;
-@@ -392,9 +405,6 @@
+ 	/* if operating on a DFS channel, enable radar pulse detection */
+ 	if (sc->hw->conf.radar_enabled)
+@@ -393,9 +406,6 @@
  	if (sc->sc_ah->is_monitoring)
  		rfilt |= ATH9K_RX_FILTER_PROM;
  
@@ -530,7 +530,7 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/recv.c
  	if ((sc->sc_ah->opmode == NL80211_IFTYPE_STATION) &&
  	    (sc->nvifs <= 1) &&
  	    !(sc->rx.rxfilter & FIF_BCN_PRBRESP_PROMISC))
-@@ -1367,6 +1377,10 @@
+@@ -1385,6 +1395,10 @@
  
  		ath9k_apply_ampdu_details(sc, &rs, rxs);
  
@@ -541,10 +541,10 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/recv.c
  		ieee80211_rx(hw, skb);
  
  requeue_drop_frag:
-Index: cw-aa/drivers/net/wireless/ath/ath9k/ar9002_mac.c
+Index: cwAA/drivers/net/wireless/ath/ath9k/ar9002_mac.c
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath9k/ar9002_mac.c	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath9k/ar9002_mac.c	2013-07-14 17:31:31.354996273 +0200
+--- cwAA.orig/drivers/net/wireless/ath/ath9k/ar9002_mac.c	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/ar9002_mac.c	2013-09-02 23:04:33.263111074 +0200
 @@ -341,6 +341,13 @@
  	ts->evm1 = ads->AR_TxEVM1;
  	ts->evm2 = ads->AR_TxEVM2;
@@ -559,10 +559,10 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/ar9002_mac.c
  	return 0;
  }
  
-Index: cw-aa/drivers/net/wireless/ath/ath9k/mac.h
+Index: cwAA/drivers/net/wireless/ath/ath9k/mac.h
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath9k/mac.h	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath9k/mac.h	2013-07-14 17:31:31.354996273 +0200
+--- cwAA.orig/drivers/net/wireless/ath/ath9k/mac.h	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/mac.h	2013-09-02 23:04:33.267111074 +0200
 @@ -121,6 +121,7 @@
  	u32 evm0;
  	u32 evm1;
@@ -571,11 +571,11 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/mac.h
  };
  
  struct ath_rx_status {
-Index: cw-aa/drivers/net/wireless/ath/ath9k/xmit.c
+Index: cwAA/drivers/net/wireless/ath/ath9k/xmit.c
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath9k/xmit.c	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath9k/xmit.c	2013-07-14 17:43:01.634099050 +0200
-@@ -530,6 +530,9 @@
+--- cwAA.orig/drivers/net/wireless/ath/ath9k/xmit.c	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/xmit.c	2013-09-02 23:04:33.267111074 +0200
+@@ -600,6 +600,9 @@
  				memcpy(tx_info->control.rates, rates, sizeof(rates));
  				ath_tx_rc_status(sc, bf, ts, nframes, nbad, txok);
  				rc_update = false;
@@ -585,23 +585,19 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/xmit.c
  			}
  
  			ath_tx_complete_buf(sc, bf, txq, &bf_head, ts,
-@@ -623,8 +626,10 @@
- 		txq->axq_ampdu_depth--;
- 
- 	if (!bf_isampdu(bf)) {
--		if (!flush)
-+		if (!flush) {
+@@ -700,6 +703,7 @@
+ 			memcpy(info->control.rates, bf->rates,
+ 			       sizeof(info->control.rates));
  			ath_tx_rc_status(sc, bf, ts, 1, txok ? 0 : 1, txok);
 +			ath_dynack_sample_tx_ts(sc, bf->bf_mpdu, ts);
-+		}
+ 		}
  		ath_tx_complete_buf(sc, bf, txq, bf_head, ts, txok);
  	} else
- 		ath_tx_complete_aggr(sc, txq, bf, bf_head, ts, txok);
-Index: cw-aa/drivers/net/wireless/ath/ath9k/debug.c
+Index: cwAA/drivers/net/wireless/ath/ath9k/debug.c
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath9k/debug.c	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath9k/debug.c	2013-07-14 17:31:31.358996245 +0200
-@@ -2192,6 +2192,61 @@
+--- cwAA.orig/drivers/net/wireless/ath/ath9k/debug.c	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/debug.c	2013-09-02 23:04:33.267111074 +0200
+@@ -1935,6 +1935,61 @@
  	.llseek = default_llseek,
  };
  
@@ -663,7 +659,7 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/debug.c
  
  int ath9k_init_debug(struct ath_hw *ah)
  {
-@@ -2297,5 +2352,10 @@
+@@ -2035,5 +2090,10 @@
  	debugfs_create_file("btcoex", S_IRUSR, sc->debug.debugfs_phy, sc,
  			    &fops_btcoex);
  #endif
@@ -674,11 +670,11 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/debug.c
 +
  	return 0;
  }
-Index: cw-aa/drivers/net/wireless/ath/ath9k/hw.c
+Index: cwAA/drivers/net/wireless/ath/ath9k/hw.c
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath9k/hw.c	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath9k/hw.c	2013-07-14 17:31:31.358996245 +0200
-@@ -1007,6 +1007,15 @@
+--- cwAA.orig/drivers/net/wireless/ath/ath9k/hw.c	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/hw.c	2013-09-02 23:04:33.267111074 +0200
+@@ -1005,6 +1005,15 @@
  	REG_WRITE(ah, AR_D_GBL_IFS_SIFS, val);
  }
  
@@ -694,7 +690,7 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/hw.c
  static void ath9k_hw_setslottime(struct ath_hw *ah, u32 us)
  {
  	u32 val = ath9k_hw_mac_to_clks(ah, us);
-@@ -1014,19 +1023,39 @@
+@@ -1012,19 +1021,39 @@
  	REG_WRITE(ah, AR_D_GBL_IFS_SLOT, val);
  }
  
@@ -736,7 +732,7 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/hw.c
  
  static bool ath9k_hw_set_global_txtimeout(struct ath_hw *ah, u32 tu)
  {
-@@ -1045,6 +1074,7 @@
+@@ -1043,6 +1072,7 @@
  void ath9k_hw_init_global_settings(struct ath_hw *ah)
  {
  	struct ath_common *common = ath9k_hw_common(ah);
@@ -756,11 +752,11 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/hw.c
  	ath9k_hw_set_ack_timeout(ah, acktimeout);
  	ath9k_hw_set_cts_timeout(ah, ctstimeout);
  	if (ah->globaltxtimeout != (u32) -1)
-Index: cw-aa/drivers/net/wireless/ath/ath9k/hw.h
+Index: cwAA/drivers/net/wireless/ath/ath9k/hw.h
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath9k/hw.h	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath9k/hw.h	2013-07-14 17:43:50.813749892 +0200
-@@ -1053,6 +1053,12 @@
+--- cwAA.orig/drivers/net/wireless/ath/ath9k/hw.h	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath9k/hw.h	2013-09-02 23:04:33.267111074 +0200
+@@ -1039,6 +1039,12 @@
  bool ath9k_hw_setpower(struct ath_hw *ah, enum ath9k_power_mode mode);
  void ath9k_hw_update_diag(struct ath_hw *ah);
  
@@ -770,13 +766,13 @@ Index: cw-aa/drivers/net/wireless/ath/ath9k/hw.h
 +void ath9k_hw_set_ack_timeout(struct ath_hw *ah, u32 us);
 +void ath9k_hw_set_cts_timeout(struct ath_hw *ah, u32 us);
 +
- #ifdef CONFIG_ATH9K_DEBUGFS
+ #ifdef CPTCFG_ATH9K_DEBUGFS
  void ath9k_debug_sync_cause(struct ath_common *common, u32 sync_cause);
  #else
-Index: cw-aa/drivers/net/wireless/ath/ath.h
+Index: cwAA/drivers/net/wireless/ath/ath.h
 ===================================================================
---- cw-aa.orig/drivers/net/wireless/ath/ath.h	2013-07-14 17:31:31.366996189 +0200
-+++ cw-aa/drivers/net/wireless/ath/ath.h	2013-07-14 17:45:26.765068579 +0200
+--- cwAA.orig/drivers/net/wireless/ath/ath.h	2013-09-02 23:04:33.271111074 +0200
++++ cwAA/drivers/net/wireless/ath/ath.h	2013-09-02 23:08:02.535115003 +0200
 @@ -219,6 +219,7 @@
   *	AR9462.
   * @ATH_DBG_DFS: radar datection
@@ -785,11 +781,11 @@ Index: cw-aa/drivers/net/wireless/ath/ath.h
   * @ATH_DBG_ANY: enable all debugging
   *
   * The debug level is used to control the amount and type of debugging output
-@@ -247,6 +248,7 @@
- 	ATH_DBG_MCI		= 0x00010000,
- 	ATH_DBG_DFS		= 0x00020000,
- 	ATH_DBG_WOW		= 0x00040000,
-+	ATH_DBG_DYNACK		= 0x00080000,
+@@ -246,6 +247,7 @@
+ 	ATH_DBG_MCI		= 0x00008000,
+ 	ATH_DBG_DFS		= 0x00010000,
+ 	ATH_DBG_WOW		= 0x00020000,
++	ATH_DBG_DYNACK		= 0x00040000,
  	ATH_DBG_ANY		= 0xffffffff
  };
  
